@@ -426,7 +426,7 @@ static int intel_pmu_pebs_fixup_ip(struct pt_regs *regs)
 		if (!kernel_ip(ip)) {
 			int bytes, size = MAX_INSN_SIZE;
 
-			bytes = copy_from_user_nmi(buf, (void __user *)to, size);
+			bytes = copy_from_user_gup(buf, (void __user *)to, size);
 			if (bytes != size)
 				return 0;
 

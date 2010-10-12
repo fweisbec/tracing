@@ -45,8 +45,8 @@ do {								\
 /*
  * best effort, GUP based copy_from_user() that assumes IRQ or NMI context
  */
-static unsigned long
-copy_from_user_nmi(void *to, const void __user *from, unsigned long n)
+unsigned long
+__copy_from_user_gup(void *to, const void __user *from, unsigned long n)
 {
 	unsigned long offset, addr = (unsigned long)from;
 	int type = in_nmi() ? KM_NMI : KM_IRQ0;
@@ -1688,7 +1688,7 @@ perf_callchain_user32(struct pt_regs *regs, struct perf_callchain_entry *entry)
 		frame.next_frame     = 0;
 		frame.return_address = 0;
 
-		bytes = copy_from_user_nmi(&frame, fp, sizeof(frame));
+		bytes = copy_from_user_gup(&frame, fp, sizeof(frame));
 		if (bytes != sizeof(frame))
 			break;
 
@@ -1731,7 +1731,7 @@ perf_callchain_user(struct perf_callchain_entry *entry, struct pt_regs *regs)
 		frame.next_frame	     = NULL;
 		frame.return_address = 0;
 
-		bytes = copy_from_user_nmi(&frame, fp, sizeof(frame));
+		bytes = copy_from_user_gup(&frame, fp, sizeof(frame));
 		if (bytes != sizeof(frame))
 			break;
 

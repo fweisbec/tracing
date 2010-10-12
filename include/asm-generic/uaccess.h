@@ -240,6 +240,10 @@ extern int __get_user_bad(void) __attribute__((noreturn));
 #define __copy_to_user_inatomic __copy_to_user
 #endif
 
+#ifndef copy_from_user_gup
+#define copy_from_user_gup __copy_from_user_inatomic
+#endif
+
 static inline long copy_from_user(void *to,
 		const void __user * from, unsigned long n)
 {

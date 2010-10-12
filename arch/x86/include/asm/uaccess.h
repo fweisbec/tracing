@@ -229,6 +229,11 @@ extern void __put_user_2(void);
 extern void __put_user_4(void);
 extern void __put_user_8(void);
 
+extern unsigned long
+__copy_from_user_gup(void *to, const void __user *from, unsigned long n);
+
+#define copy_from_user_gup(to, from, n)	__copy_from_user_gup(to, from, n)
+
 #ifdef CONFIG_X86_WP_WORKS_OK
 
 /**
