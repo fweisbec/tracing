@@ -30,6 +30,8 @@
 #include "util/sort.h"
 #include "util/hist.h"
 
+#include <linux/err.h>
+
 static char		const *input_name = "perf.data";
 
 static bool		force, use_tui, use_stdio;
@@ -87,6 +89,7 @@ static int perf_session__add_hist_entry(struct perf_session *self,
 	struct hist_entry *he;
 	struct hists *hists;
 	struct perf_event_attr *attr;
+	struct dwarf_callchain *dc;
 
 	if ((sort__has_parent || symbol_conf.use_callchain) && data->callchain) {
 		syms = perf_session__resolve_callchain(self, al->thread,
@@ -94,6 +97,10 @@ static int perf_session__add_hist_entry(struct perf_session *self,
 		if (syms == NULL)
 			return -ENOMEM;
 	}
+
+	dc = callchain_unwind(self, al->thread, data);
+	if (IS_ERR(dc))
+		return PTR_ERR(dc);
 
 	attr = perf_header__find_attr(data->id, &self->header);
 	if (attr)
@@ -108,7 +115,7 @@ static int perf_session__add_hist_entry(struct perf_session *self,
 	err = 0;
 	if (symbol_conf.use_callchain) {
 		err = callchain_append(he->callchain, data->callchain, syms,
-				       data->period);
+				       dc, data->period);
 		if (err)
 			goto out_free_syms;
 	}

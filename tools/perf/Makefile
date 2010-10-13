@@ -468,6 +468,7 @@ LIB_OBJS += $(OUTPUT)util/hist.o
 LIB_OBJS += $(OUTPUT)util/probe-event.o
 LIB_OBJS += $(OUTPUT)util/util.o
 LIB_OBJS += $(OUTPUT)util/cpumap.o
+LIB_OBJS += $(OUTPUT)util/unwind.o
 
 BUILTIN_OBJS += $(OUTPUT)builtin-annotate.o
 

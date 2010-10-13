@@ -365,8 +365,10 @@ append_chain(struct callchain_node *root, struct resolved_chain *chain,
 }
 
 static void filter_context(struct ip_callchain *old, struct resolved_chain *new,
-			   struct map_symbol *syms)
+			   struct map_symbol *syms,
+			   struct dwarf_callchain *dwarf_chain)
 {
+	struct dwarf_callchain_entry *entry, *tmp;
 	int i, j = 0;
 
 	for (i = 0; i < (int)old->nr; i++) {
@@ -379,23 +381,46 @@ static void filter_context(struct ip_callchain *old, struct resolved_chain *new,
 	}
 
 	new->nr = j;
+
+	if (!dwarf_chain)
+		return;
+
+	list_for_each_entry_safe(entry, tmp, &dwarf_chain->chain_head, list) {
+		new->ips[j].ip = entry->ip;
+		new->ips[j].ms = entry->ms;
+		j++;
+
+		list_del(&entry->list);
+		free(entry);
+	}
+
+	new->nr += dwarf_chain->nb;
+
+	free(dwarf_chain);
 }
 
 
 int callchain_append(struct callchain_root *root, struct ip_callchain *chain,
-		     struct map_symbol *syms, u64 period)
+		     struct map_symbol *syms,
+		     struct dwarf_callchain *dwarf_chain, u64 period)
 {
 	struct resolved_chain *filtered;
+	int entries;
 
-	if (!chain->nr)
+	entries = chain->nr;
+
+	if (dwarf_chain)
+		entries += dwarf_chain->nb;
+
+	if (!entries)
 		return 0;
 
 	filtered = zalloc(sizeof(*filtered) +
-			  chain->nr * sizeof(struct resolved_ip));
+			  entries * sizeof(struct resolved_ip));
 	if (!filtered)
 		return -ENOMEM;
 
-	filter_context(chain, filtered, syms);
+	filter_context(chain, filtered, syms, dwarf_chain);
 
 	if (!filtered->nr)
 		goto end;

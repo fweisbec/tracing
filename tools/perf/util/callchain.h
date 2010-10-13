@@ -31,6 +31,17 @@ struct callchain_root {
 	struct callchain_node	node;
 };
 
+struct dwarf_callchain_entry {
+	struct list_head	list;
+	u64			ip;
+	struct map_symbol	ms;
+};
+
+struct dwarf_callchain {
+	int			nb;
+	struct list_head	chain_head;
+};
+
 struct callchain_param;
 
 typedef void (*sort_chain_func_t)(struct rb_root *, struct callchain_root *,
@@ -68,8 +79,14 @@ static inline u64 cumul_hits(struct callchain_node *node)
 
 int register_callchain_param(struct callchain_param *param);
 int callchain_append(struct callchain_root *root, struct ip_callchain *chain,
-		     struct map_symbol *syms, u64 period);
+		     struct map_symbol *syms,
+		     struct dwarf_callchain *dwarf_chain, u64 period);
+
 int callchain_merge(struct callchain_root *dst, struct callchain_root *src);
 
 bool ip_callchain__valid(struct ip_callchain *chain, const event_t *event);
+
+struct dwarf_callchain *callchain_unwind(struct perf_session *session,
+					 struct thread *thread,
+					 struct sample_data *data);
 #endif	/* __PERF_CALLCHAIN_H */
