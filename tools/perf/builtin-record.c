@@ -22,6 +22,7 @@
 #include "util/session.h"
 #include "util/symbol.h"
 #include "util/cpumap.h"
+#include "util/perf_regs.h"
 
 #include <unistd.h>
 #include <sched.h>
@@ -30,6 +31,12 @@
 enum write_mode_t {
 	WRITE_FORCE,
 	WRITE_APPEND
+};
+
+enum call_graph_mode {
+	CALLCHAIN_NONE,
+	CALLCHAIN_FP,
+	CALLCHAIN_DWARF
 };
 
 static int			*fd[MAX_NR_CPUS][MAX_COUNTERS];
@@ -56,7 +63,6 @@ static int			thread_num			=      0;
 static pid_t			child_pid			=     -1;
 static bool			no_inherit			=  false;
 static enum write_mode_t	write_mode			= WRITE_FORCE;
-static bool			call_graph			=  false;
 static bool			inherit_stat			=  false;
 static bool			no_samples			=  false;
 static bool			sample_address			=  false;
@@ -75,6 +81,10 @@ static off_t			post_processing_offset;
 
 static struct perf_session	*session;
 static const char		*cpu_list;
+
+static char			callchain_default_opt[]		=      "fp";
+static unsigned long		stack_dump_size			=	4000;
+static enum call_graph_mode	call_graph			= CALLCHAIN_NONE;
 
 struct mmap_data {
 	int			counter;
@@ -274,8 +284,15 @@ static void create_counter(int counter, int cpu)
 		attr->mmap_data = track;
 	}
 
-	if (call_graph)
+	if (call_graph) {
 		attr->sample_type	|= PERF_SAMPLE_CALLCHAIN;
+
+		if (call_graph == CALLCHAIN_DWARF) {
+			attr->user_regs = PERF_UNWIND_REGS_MASK;
+			attr->ustack_dump_size = stack_dump_size;
+			attr->exclude_user_callchain = 1;
+		}
+	}
 
 	if (system_wide)
 		attr->sample_type	|= PERF_SAMPLE_CPU;
@@ -779,6 +796,58 @@ out_delete_session:
 	return err;
 }
 
+static int
+parse_callchain_opt(const struct option *opt __used, const char *arg,
+		    int unset)
+{
+	char *tok;
+
+	/*
+	 * --no-call-graph
+	 */
+	if (unset)
+		return 0;
+
+	if (!arg)
+		return 0;
+
+	tok = strtok((char *)arg, ",");
+	if (!tok)
+		return -1;
+
+	/* get the output mode */
+	if (!strncmp(tok, "fp", strlen(arg)))
+		call_graph = CALLCHAIN_FP;
+
+	else if (!strncmp(tok, "dwarf", strlen(arg)))
+		call_graph = CALLCHAIN_DWARF;
+
+	else if (!strncmp(tok, "none", strlen(arg)))
+		return 0;
+
+	else
+		return -1;
+
+	/* get the stack dump size */
+	tok = strtok(NULL, ",");
+	if (!tok)
+		return 0;
+
+	/* No stack dump size if we record using frame pointers */
+	if (call_graph == CALLCHAIN_FP) {
+		fprintf(stderr, "Stack dump size is only necessary for -g dwarf\n");
+		return -1;
+	}
+
+	stack_dump_size = strtoul(tok, NULL, 0);
+	if (stack_dump_size == ULONG_MAX) {
+		perror("Incorrect stack dump size\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 static const char * const record_usage[] = {
 	"perf record [<options>] [<command>]",
 	"perf record [<options>] -- <command> [<options>]",
@@ -816,8 +885,9 @@ static const struct option options[] = {
 		    "child tasks do not inherit counters"),
 	OPT_UINTEGER('F', "freq", &user_freq, "profile at this frequency"),
 	OPT_UINTEGER('m', "mmap-pages", &mmap_pages, "number of mmap data pages"),
-	OPT_BOOLEAN('g', "call-graph", &call_graph,
-		    "do call-graph (stack chain/backtrace) recording"),
+	OPT_CALLBACK_DEFAULT('g', "call-graph", NULL, "mode,dump_size",
+		     "do call-graph (stack chain/backtrace) recording"
+		     "Default: fp", &parse_callchain_opt, callchain_default_opt),
 	OPT_INCR('v', "verbose", &verbose,
 		    "be more verbose (show counter open errors, etc)"),
 	OPT_BOOLEAN('s', "stat", &inherit_stat,
