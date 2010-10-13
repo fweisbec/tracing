@@ -90,6 +90,20 @@ int main(void)
 endef
 endif
 
+ifndef NO_LIBUNWIND
+define SOURCE_LIBUNWIND
+#include <libunwind.h>
+#include <stdlib.h>
+
+int main(void)
+{
+	unw_addr_space_t addr_space;
+	addr_space = unw_create_addr_space(NULL, 0);
+	return 0;
+}
+endef
+endif
+
 define SOURCE_BFD
 #include <bfd.h>
 
