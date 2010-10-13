@@ -3295,28 +3295,43 @@ out:
 	preempt_enable();
 }
 
-__always_inline void perf_output_copy(struct perf_output_handle *handle,
-		      const void *buf, unsigned int len)
+static int memcpy_common(void *dst, const void *src, size_t n)
 {
-	do {
-		unsigned long size = min_t(unsigned long, handle->size, len);
+	memcpy(dst, src, n);
 
-		memcpy(handle->addr, buf, size);
-
-		len -= size;
-		handle->addr += size;
-		buf += size;
-		handle->size -= size;
-		if (!handle->size) {
-			struct perf_buffer *buffer = handle->buffer;
-
-			handle->page++;
-			handle->page &= buffer->nr_pages - 1;
-			handle->addr = buffer->data_pages[handle->page];
-			handle->size = PAGE_SIZE << page_order(buffer);
-		}
-	} while (len);
+	return n;
 }
+
+#define DEFINE_PERF_OUTPUT_COPY(func_name, memcpy_func)				\
+__always_inline unsigned int func_name(struct perf_output_handle *handle,	\
+				       const void *buf, unsigned int len)	\
+{										\
+	unsigned long size, written;						\
+										\
+	do {									\
+		size = min_t(unsigned long, handle->size, len);			\
+										\
+		written = memcpy_func(handle->addr, buf, size);			\
+										\
+		len -= written;							\
+		handle->addr += written;					\
+		buf += written;							\
+		handle->size -= written;					\
+		if (!handle->size) {						\
+			struct perf_buffer *buffer = handle->buffer;		\
+										\
+			handle->page++;						\
+			handle->page &= buffer->nr_pages - 1;			\
+			handle->addr = buffer->data_pages[handle->page];	\
+			handle->size = PAGE_SIZE << page_order(buffer);		\
+		}								\
+	} while (len && written == size);					\
+										\
+	return len;								\
+}
+
+DEFINE_PERF_OUTPUT_COPY(perf_output_copy, memcpy_common)
+DEFINE_PERF_OUTPUT_COPY(perf_output_copy_user_gup, copy_from_user_gup)
 
 int perf_output_begin(struct perf_output_handle *handle,
 		      struct perf_event *event, unsigned int size,
@@ -3618,6 +3633,44 @@ void perf_output_sample(struct perf_output_handle *handle,
 						event->attr.user_regs);
 		}
 	}
+
+	if (event->attr.ustack_dump_size) {
+		unsigned long sp;
+		unsigned int rem;
+		u64 size, dyn_size;
+
+		/* Case of a kernel thread, nothing to dump */
+		if (!data->uregs) {
+			size = 0;
+			perf_output_put(handle, size);
+
+			return;
+		}
+
+		/*
+		 * Static size: we always dump the size requested by the user
+		 * because most of the time, the top of the user stack is not
+		 * paged out. Perhaps we should force ustack_dump_size
+		 * to be % 8.
+		 */
+		size = event->attr.ustack_dump_size;
+		size = round_up(size, sizeof(u64));
+		perf_output_put(handle, size);
+
+		/* CHECKME: might me missing on some archs */
+		sp = user_stack_pointer(data->uregs);
+		rem = perf_output_copy_user_gup(handle, (void *)sp, size);
+		dyn_size = size - rem;
+
+		/* What couldn't be dumped is zero padded */
+		while (rem--) {
+			char zero = 0;
+			perf_output_put(handle, zero);
+		}
+
+		/* Dynamic size: whole dump - padding */
+		perf_output_put(handle, dyn_size);
+	}
 }
 
 void perf_prepare_sample(struct perf_event_header *header,
@@ -3715,6 +3768,32 @@ void perf_prepare_sample(struct perf_event_header *header,
 			size += hweight64(event->attr.user_regs) * sizeof(u64);
 
 		header->size += size;
+	}
+
+	if (event->attr.ustack_dump_size) {
+		if (!event->attr.user_regs)
+			data->uregs = perf_sample_uregs(regs);
+
+		/*
+		 * A first field that tells the _static_ size of the dump. 0 if
+		 * there is nothing to dump (ie: we are in a kernel thread)
+		 * otherwise the requested size.
+		 */
+		header->size += sizeof(u64);
+
+		/*
+		 * If there is something to dump, add space for the dump itself
+		 * and for the field that tells the _dynamic_ size, which is
+		 * how many have been actually dumped. What couldn't be dumped
+		 * will be zero-padded.
+		 */
+		if (data->uregs) {
+			u64 size = event->attr.ustack_dump_size;
+
+			size = round_up(size, sizeof(u64));
+			header->size += size;
+			header->size += sizeof(u64);
+		}
 	}
 }
 

@@ -236,6 +236,10 @@ struct perf_event_attr {
 	 * samples. See asm/perf_regs.h for details.
 	 */
 	__u64			user_regs;
+	__u32			ustack_dump_size;
+
+	/* Future extension */
+	__u32			__reserved_4;
 };
 
 /*
@@ -1107,8 +1111,9 @@ extern int perf_output_begin(struct perf_output_handle *handle,
 			     struct perf_event *event, unsigned int size,
 			     int nmi, int sample);
 extern void perf_output_end(struct perf_output_handle *handle);
-extern void perf_output_copy(struct perf_output_handle *handle,
-			     const void *buf, unsigned int len);
+extern unsigned int
+perf_output_copy(struct perf_output_handle *handle,
+		 const void *buf, unsigned int len);
 extern int perf_swevent_get_recursion_context(void);
 extern void perf_swevent_put_recursion_context(int rctx);
 extern void perf_event_enable(struct perf_event *event);
