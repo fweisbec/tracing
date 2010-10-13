@@ -226,6 +226,16 @@ struct perf_event_attr {
 	__u32			bp_type;
 	__u64			bp_addr;
 	__u64			bp_len;
+
+	/* Future breakpoint fields extension */
+	__u64			__reserved_2;
+	__u64			__reserved_3;
+
+	/*
+	 * Arch specific mask that defines a set of user regs to dump on
+	 * samples. See asm/perf_regs.h for details.
+	 */
+	__u64			user_regs;
 };
 
 /*
@@ -474,6 +484,7 @@ struct perf_guest_info_callbacks {
 #ifdef CONFIG_HAVE_HW_BREAKPOINT
 #include <asm/hw_breakpoint.h>
 #endif
+
 
 #include <linux/list.h>
 #include <linux/mutex.h>
@@ -891,6 +902,22 @@ struct perf_output_handle {
 
 #ifdef CONFIG_PERF_EVENTS
 
+#ifdef CONFIG_HAVE_PERF_REGS_DEFS
+#include <asm/perf_regs.h>
+#else
+static inline int perf_reg_value(struct pt_regs *regs, int idx) { return 0; }
+
+static inline int perf_reg_version(struct pt_regs *regs, int idx)
+{
+	return -EINVAL;
+}
+
+static inline int perf_reg_validate(u64 mask)
+{
+	return -ENOSYS;
+}
+#endif /*CONFIG_HAVE_PERF_REGS_DUMP */
+
 extern int perf_pmu_register(struct pmu *pmu);
 extern void perf_pmu_unregister(struct pmu *pmu);
 
@@ -950,6 +977,7 @@ struct perf_sample_data {
 	u64				period;
 	struct perf_callchain_entry	*callchain;
 	struct perf_raw_record		*raw;
+	struct pt_regs			*uregs;
 };
 
 static inline

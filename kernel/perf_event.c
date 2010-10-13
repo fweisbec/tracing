@@ -2051,6 +2051,19 @@ exit_put:
 	return entry;
 }
 
+static struct pt_regs *perf_sample_uregs(struct pt_regs *regs)
+{
+	if (!user_mode(regs)) {
+		if (current->mm)
+			regs = task_pt_regs(current);
+		else
+			regs = NULL;
+	}
+
+	return regs;
+}
+
+
 /*
  * Initialize the perf_event context in a task_struct:
  */
@@ -3502,6 +3515,25 @@ static void perf_output_read(struct perf_output_handle *handle,
 		perf_output_read_one(handle, event);
 }
 
+static void
+perf_output_sample_regs(struct perf_output_handle *handle,
+			struct pt_regs *regs, u64 mask)
+{
+	int i = 0;
+
+	do {
+		u64 val;
+
+		if (mask & 1) {
+			val = perf_reg_value(regs, i);
+			perf_output_put(handle, val);
+		}
+
+		mask >>= 1;
+		i++;
+	} while (mask);
+}
+
 void perf_output_sample(struct perf_output_handle *handle,
 			struct perf_event_header *header,
 			struct perf_sample_data *data,
@@ -3568,6 +3600,22 @@ void perf_output_sample(struct perf_output_handle *handle,
 				.data = 0,
 			};
 			perf_output_put(handle, raw);
+		}
+	}
+
+	if (event->attr.user_regs) {
+		u64 id;
+
+		/* If there is no regs to dump, notice it through a 0 version */
+		if (!data->uregs) {
+			id = 0;
+			perf_output_put(handle, id);
+		} else {
+
+			id = perf_reg_version();
+			perf_output_put(handle, id);
+			perf_output_sample_regs(handle, data->uregs,
+						event->attr.user_regs);
 		}
 	}
 }
@@ -3655,6 +3703,17 @@ void perf_prepare_sample(struct perf_event_header *header,
 			size += sizeof(u32);
 
 		WARN_ON_ONCE(size & (sizeof(u64)-1));
+		header->size += size;
+	}
+
+	if (event->attr.user_regs) {
+		int size = sizeof(u64); /* the version size */
+
+		data->uregs = perf_sample_uregs(regs);
+		if (data->uregs)
+			/* Regs values */
+			size += hweight64(event->attr.user_regs) * sizeof(u64);
+
 		header->size += size;
 	}
 }
@@ -5429,7 +5488,7 @@ static int perf_copy_attr(struct perf_event_attr __user *uattr,
 	if (attr->type >= PERF_TYPE_MAX)
 		return -EINVAL;
 
-	if (attr->__reserved_1)
+	if (attr->__reserved_1 || attr->__reserved_2 || attr->__reserved_3)
 		return -EINVAL;
 
 	if (attr->sample_type & ~(PERF_SAMPLE_MAX-1))
@@ -5437,6 +5496,8 @@ static int perf_copy_attr(struct perf_event_attr __user *uattr,
 
 	if (attr->read_format & ~(PERF_FORMAT_MAX-1))
 		return -EINVAL;
+
+	ret = perf_reg_validate(attr->user_regs);
 
 out:
 	return ret;
