@@ -158,6 +158,13 @@ config HAVE_PERF_EVENTS_NMI
 	  subsystem.  Also has support for calculating CPU cycle events
 	  to determine how many clock cycles in a given period.
 
+config HAVE_PERF_REGS_DEFS
+	bool
+	help
+	  Support selective register dumps for perf events. This includes
+	  bit-mapping of each registers and a unique architecture version,
+	  also different between 32 and 64 bits.
+
 config HAVE_ARCH_JUMP_LABEL
 	bool
 
