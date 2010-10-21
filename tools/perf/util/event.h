@@ -61,6 +61,16 @@ struct sample_event {
 	u64 array[];
 };
 
+struct user_regs {
+	u64 version;
+	u64 *regs;
+};
+
+struct user_stack_dump {
+	u64 size;
+	char *data;
+};
+
 struct sample_data {
 	u64 ip;
 	u32 pid, tid;
@@ -73,6 +83,8 @@ struct sample_data {
 	u32 raw_size;
 	void *raw_data;
 	struct ip_callchain *callchain;
+	struct user_regs uregs;
+	struct user_stack_dump stack;
 };
 
 #define BUILD_ID_SIZE 20
@@ -160,7 +172,8 @@ struct addr_location;
 int event__preprocess_sample(const event_t *self, struct perf_session *session,
 			     struct addr_location *al, struct sample_data *data,
 			     symbol_filter_t filter);
-int event__parse_sample(const event_t *event, u64 type, struct sample_data *data);
+int event__parse_sample(const event_t *event, struct perf_session *session,
+			struct sample_data *data);
 
 extern const char *event__name[];
 

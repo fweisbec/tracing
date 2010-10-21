@@ -39,6 +39,12 @@ struct perf_session {
 	 */
 	struct hists		hists;
 	u64			sample_type;
+	u64			sample_uregs;
+	/* We should probably use a quick hweight64() in sample_uregs to get
+	 * this instead of storing it.
+	 */
+	int			sample_uregs_nr;
+	bool			sample_ustack;
 	int			fd;
 	bool			fd_pipe;
 	bool			repipe;

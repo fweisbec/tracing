@@ -67,7 +67,7 @@ out_close:
 
 void perf_session__update_sample_type(struct perf_session *self)
 {
-	self->sample_type = perf_header__sample_type(&self->header);
+	perf_header__sample_type(&self->header, self);
 }
 
 int perf_session__create_kernel_maps(struct perf_session *self)
@@ -576,7 +576,7 @@ static int perf_session__process_sample(event_t *event, struct perf_session *s,
 		return ops->sample(event, s);
 
 	bzero(&data, sizeof(struct sample_data));
-	event__parse_sample(event, s->sample_type, &data);
+	event__parse_sample(event, s, &data);
 
 	queue_sample_event(event, &data, s);
 

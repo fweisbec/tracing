@@ -676,7 +676,7 @@ int event__preprocess_sample(const event_t *self, struct perf_session *session,
 	u8 cpumode = self->header.misc & PERF_RECORD_MISC_CPUMODE_MASK;
 	struct thread *thread;
 
-	event__parse_sample(self, session->sample_type, data);
+	event__parse_sample(self, session, data);
 
 	dump_printf("(IP, %d): %d/%d: %#Lx period: %Ld cpu:%d\n",
 		    self->header.misc, data->pid, data->tid, data->ip,
@@ -766,9 +766,11 @@ out_filtered:
 	return 0;
 }
 
-int event__parse_sample(const event_t *event, u64 type, struct sample_data *data)
+int event__parse_sample(const event_t *event, struct perf_session *session,
+			struct sample_data *data)
 {
 	const u64 *array = event->sample.array;
+	u64 type = session->sample_type;
 
 	if (type & PERF_SAMPLE_IP) {
 		data->ip = event->ip.ip;
@@ -830,6 +832,28 @@ int event__parse_sample(const event_t *event, u64 type, struct sample_data *data
 		data->raw_size = *p;
 		p++;
 		data->raw_data = p;
+		array += 1 + (data->raw_size * sizeof(u64));
+	}
+
+	if (session->sample_uregs_nr) {
+		data->uregs.version = *array++;
+
+		if (data->uregs.version) {
+			data->uregs.regs = (u64 *)array;
+			array += session->sample_uregs_nr;
+		}
+	}
+
+	if (session->sample_ustack) {
+		u64 size = *array++;
+
+		if (!size) {
+			data->stack.size = 0;
+		} else {
+			data->stack.data = (char *)array;
+			array += size / sizeof(*array);
+			data->stack.size = *array;
+		}
 	}
 
 	return 0;

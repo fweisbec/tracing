@@ -840,7 +840,7 @@ static int process_sample_event(event_t *self, struct perf_session *s)
 	struct thread *thread;
 
 	bzero(&data, sizeof(data));
-	event__parse_sample(self, s->sample_type, &data);
+	event__parse_sample(self, s, &data);
 
 	thread = perf_session__findnew(s, data.tid);
 	if (thread == NULL) {

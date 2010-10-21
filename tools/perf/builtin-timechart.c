@@ -477,7 +477,7 @@ static int process_sample_event(event_t *event, struct perf_session *session)
 
 	memset(&data, 0, sizeof(data));
 
-	event__parse_sample(event, session->sample_type, &data);
+	event__parse_sample(event, session, &data);
 
 	if (session->sample_type & PERF_SAMPLE_TIME) {
 		if (!first_time || first_time > data.time)

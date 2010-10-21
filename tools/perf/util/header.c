@@ -922,9 +922,26 @@ out_errno:
 	return -errno;
 }
 
-u64 perf_header__sample_type(struct perf_header *header)
+static int regs_weight(u64 user_regs)
+{
+	int i, bits = 0;
+
+	for (i = 0; i < (int)sizeof(u64) * 8 && user_regs; i++) {
+		if (user_regs & 1)
+			bits++;
+
+		user_regs >>= 1;
+	}
+
+	return bits;
+}
+
+void perf_header__sample_type(struct perf_header *header,
+			      struct perf_session *session)
 {
 	u64 type = 0;
+	u64 uregs = 0;
+	int uregs_nr = 0, ustack = false;
 	int i;
 
 	for (i = 0; i < header->attrs; i++) {
@@ -934,9 +951,21 @@ u64 perf_header__sample_type(struct perf_header *header)
 			type = attr->attr.sample_type;
 		else if (type != attr->attr.sample_type)
 			die("non matching sample_type");
+
+		if (i == 0) {
+			uregs = attr->attr.user_regs;
+			uregs_nr = regs_weight(uregs);
+			ustack = !!attr->attr.ustack_dump_size;
+		} else if (uregs != attr->attr.user_regs ||
+			   ustack != !!attr->attr.ustack_dump_size) {
+			die("non matching sample_type");
+		}
 	}
 
-	return type;
+	session->sample_type = type;
+	session->sample_uregs = uregs;
+	session->sample_uregs_nr = uregs_nr;
+	session->sample_ustack = ustack;
 }
 
 struct perf_event_attr *
