@@ -2016,7 +2016,8 @@ put_callchain_entry(int rctx)
 	put_recursion_context(__get_cpu_var(callchain_recursion), rctx);
 }
 
-static struct perf_callchain_entry *perf_callchain(struct pt_regs *regs)
+static struct perf_callchain_entry *
+perf_callchain(struct pt_regs *regs, int user)
 {
 	int rctx;
 	struct perf_callchain_entry *entry;
@@ -2040,7 +2041,7 @@ static struct perf_callchain_entry *perf_callchain(struct pt_regs *regs)
 			regs = NULL;
 	}
 
-	if (regs) {
+	if (user && regs) {
 		perf_callchain_store(entry, PERF_CONTEXT_USER);
 		perf_callchain_user(entry, regs);
 	}
@@ -3738,8 +3739,9 @@ void perf_prepare_sample(struct perf_event_header *header,
 
 	if (sample_type & PERF_SAMPLE_CALLCHAIN) {
 		int size = 1;
+		int user = !event->attr.exclude_user_callchain;
 
-		data->callchain = perf_callchain(regs);
+		data->callchain = perf_callchain(regs, user);
 
 		if (data->callchain)
 			size += data->callchain->nr;
