@@ -254,8 +254,9 @@ struct perf_event_attr {
 
 				exclude_host   :  1, /* don't count in host   */
 				exclude_guest  :  1, /* don't count in guest  */
+				enable_on_starter   :  1,
 
-				__reserved_1   : 43;
+				__reserved_1   : 42;
 
 	union {
 		__u32		wakeup_events;	  /* wakeup every n events */
