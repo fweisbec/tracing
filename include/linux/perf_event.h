@@ -284,6 +284,8 @@ struct perf_event_attr {
 #define PERF_EVENT_IOC_PERIOD		_IOW('$', 4, __u64)
 #define PERF_EVENT_IOC_SET_OUTPUT	_IO ('$', 5)
 #define PERF_EVENT_IOC_SET_FILTER	_IOW('$', 6, char *)
+#define PERF_EVENT_IOC_SET_STARTER	_IO('$', 7)
+#define PERF_EVENT_IOC_SET_STOPPER	_IO('$', 8)
 
 enum perf_event_ioc_flags {
 	PERF_IOC_FLAG_GROUP		= 1U << 0,
@@ -989,7 +991,14 @@ struct perf_event {
 	struct perf_cgroup		*cgrp; /* cgroup event is attach to */
 	int				cgrp_defer_enabled;
 #endif
-
+	struct mutex			starter_stopper_mutex;
+	struct list_head		starter_entry;
+	struct list_head		stopper_entry;
+	struct list_head		starter_list;
+	struct list_head		stopper_list;
+	struct perf_event		*starter;
+	struct perf_event		*stopper;
+	int				paused;
 #endif /* CONFIG_PERF_EVENTS */
 };
 
