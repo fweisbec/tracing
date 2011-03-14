@@ -63,6 +63,6 @@ static inline void perf_evlist__set_maps(struct perf_evlist *evlist,
 int perf_evlist__create_maps(struct perf_evlist *evlist, pid_t target_pid,
 			     pid_t target_tid, const char *cpu_list);
 void perf_evlist__delete_maps(struct perf_evlist *evlist);
-int perf_evlist__set_filters(struct perf_evlist *evlist);
-
+int perf_evlist__for_each_evsel(struct perf_evlist *evlist,
+				int (*call)(struct perf_evsel *, int, int));
 #endif /* __PERF_EVLIST_H */

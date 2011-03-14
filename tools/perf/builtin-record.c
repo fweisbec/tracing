@@ -323,8 +323,20 @@ try_again:
 		}
 	}
 
-	if (perf_evlist__set_filters(evlist)) {
+	if (perf_evlist__for_each_evsel(evlist, perf_evsel__set_filter)) {
 		error("failed to set filter with %d (%s)\n", errno,
+			strerror(errno));
+		exit(-1);
+	}
+
+	if (perf_evlist__for_each_evsel(evlist, perf_evsel__set_starter)) {
+		error("failed to set starter with %d (%s)\n", errno,
+			strerror(errno));
+		exit(-1);
+	}
+
+	if (perf_evlist__for_each_evsel(evlist, perf_evsel__set_stopper)) {
+		error("failed to set stopper with %d (%s)\n", errno,
 			strerror(errno));
 		exit(-1);
 	}
@@ -729,6 +741,10 @@ const struct option record_options[] = {
 		     parse_events),
 	OPT_CALLBACK(0, "filter", &evsel_list, "filter",
 		     "event filter", parse_filter),
+	OPT_CALLBACK(0, "starter", &evsel_list, "starter",
+		     "event starter", parse_starter),
+	OPT_CALLBACK(0, "stopper", &evsel_list, "stopper",
+		     "event stopper", parse_stopper),
 	OPT_INTEGER('p', "pid", &target_pid,
 		    "record events on existing process id"),
 	OPT_INTEGER('t', "tid", &target_tid,

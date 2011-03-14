@@ -61,6 +61,10 @@ struct perf_evsel {
 		off_t		id_offset;
 	};
 	struct cgroup_sel	*cgrp;
+	struct list_head	starter_list;
+	struct list_head	starter_entry;
+	struct list_head	stopper_list;
+	struct list_head	stopper_entry;
 };
 
 struct cpu_map;
@@ -122,6 +126,15 @@ static inline int perf_evsel__read_on_cpu_scaled(struct perf_evsel *evsel,
 
 int __perf_evsel__read(struct perf_evsel *evsel, int ncpus, int nthreads,
 		       bool scale);
+
+int perf_evsel__set_filter(struct perf_evsel *evsel, int cpu,
+			   int thread);
+
+int perf_evsel__set_starter(struct perf_evsel *evsel, int cpu,
+			    int thread);
+
+int perf_evsel__set_stopper(struct perf_evsel *evsel, int cpu,
+			    int thread);
 
 /**
  * perf_evsel__read - Read the aggregate results on all CPUs
