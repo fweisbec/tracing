@@ -1299,6 +1299,7 @@ event_sched_in(struct perf_event *event,
 		 struct perf_event_context *ctx)
 {
 	u64 tstamp = perf_event_time(event);
+	int add_flags = PERF_EF_START;
 
 	if (event->state <= PERF_EVENT_STATE_OFF)
 		return 0;
@@ -1321,7 +1322,10 @@ event_sched_in(struct perf_event *event,
 	 */
 	smp_wmb();
 
-	if (event->pmu->add(event, PERF_EF_START)) {
+	if (event->paused)
+		add_flags = 0;
+
+	if (event->pmu->add(event, add_flags)) {
 		event->state = PERF_EVENT_STATE_INACTIVE;
 		event->oncpu = -1;
 		return -EAGAIN;
@@ -2918,6 +2922,7 @@ static void free_event(struct perf_event *event)
 int perf_event_release_kernel(struct perf_event *event)
 {
 	struct perf_event_context *ctx = event->ctx;
+	struct perf_event *state_event;
 
 	/*
 	 * Remove from the PMU, can't get re-enabled since we got
@@ -2944,6 +2949,20 @@ int perf_event_release_kernel(struct perf_event *event)
 	list_del_event(event, ctx);
 	raw_spin_unlock_irq(&ctx->lock);
 	mutex_unlock(&ctx->mutex);
+
+	if (event->starter) {
+		state_event = event->starter;
+		mutex_lock(&state_event->starter_stopper_mutex);
+		list_del_rcu(&event->starter_entry);
+		mutex_unlock(&state_event->starter_stopper_mutex);
+	}
+
+	if (event->stopper) {
+		state_event = event->stopper;
+		mutex_lock(&state_event->starter_stopper_mutex);
+		list_del_rcu(&event->stopper_entry);
+		mutex_unlock(&state_event->starter_stopper_mutex);
+	}
 
 	free_event(event);
 
@@ -3246,6 +3265,73 @@ static struct perf_event *perf_fget_light(int fd, int *fput_needed)
 static int perf_event_set_output(struct perf_event *event,
 				 struct perf_event *output_event);
 static int perf_event_set_filter(struct perf_event *event, void __user *arg);
+static void perf_event_pause_resume(struct perf_event *event, int nmi,
+				    struct perf_sample_data *data,
+				    struct pt_regs *regs);
+
+static int perf_event_set_starter(struct perf_event *event,
+				  struct perf_event *target)
+{
+	struct perf_event *iter;
+	int err = 0;
+
+	if (event->ctx->task != target->ctx->task ||
+	    event->cpu != target->cpu)
+		return -EINVAL;
+
+	mutex_lock(&event->starter_stopper_mutex);
+
+	list_for_each_entry_rcu(iter, &event->starter_list, starter_entry) {
+		if (iter == target) {
+			err = -EEXIST;
+			goto end;
+		}
+	}
+
+	if (cmpxchg(&target->starter, NULL, event) == NULL) {
+		list_add_rcu(&target->starter_entry, &event->starter_list);
+		event->overflow_handler = perf_event_pause_resume;
+	} else {
+		err = -EBUSY;
+	}
+
+ end:
+	mutex_unlock(&event->starter_stopper_mutex);
+
+	return err;
+}
+
+static int perf_event_set_stopper(struct perf_event *event,
+				  struct perf_event *target)
+{
+	struct perf_event *iter;
+	int err = 0;
+
+	if (event->ctx->task != target->ctx->task ||
+	    event->cpu != target->cpu)
+		return -EINVAL;
+
+	mutex_lock(&event->starter_stopper_mutex);
+
+	list_for_each_entry_rcu(iter, &event->stopper_list, stopper_entry) {
+		if (iter == target) {
+			err = -EEXIST;
+			goto end;
+		}
+	}
+
+	if (cmpxchg(&target->stopper, NULL, event) == NULL) {
+		list_add_rcu(&target->stopper_entry, &event->stopper_list);
+		event->overflow_handler = perf_event_pause_resume;
+	} else {
+		err = -EBUSY;
+	}
+
+ end:
+	mutex_unlock(&event->starter_stopper_mutex);
+
+	return err;
+}
 
 static long perf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
@@ -3291,6 +3377,44 @@ static long perf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	case PERF_EVENT_IOC_SET_FILTER:
 		return perf_event_set_filter(event, (void __user *)arg);
+
+	case PERF_EVENT_IOC_SET_STARTER:
+	{
+		struct perf_event *target = NULL;
+		int fput_needed = 0;
+		int ret;
+
+		if (arg != -1) {
+			target = perf_fget_light(arg, &fput_needed);
+			if (IS_ERR(target))
+				return PTR_ERR(target);
+		}
+
+		ret = perf_event_set_starter(event, target);
+		if (target)
+			fput_light(target->filp, fput_needed);
+
+		return ret;
+	}
+
+	case PERF_EVENT_IOC_SET_STOPPER:
+	{
+		struct perf_event *target = NULL;
+		int fput_needed = 0;
+		int ret;
+
+		if (arg != -1) {
+			target = perf_fget_light(arg, &fput_needed);
+			if (IS_ERR(target))
+				return PTR_ERR(target);
+		}
+
+		ret = perf_event_set_stopper(event, target);
+		if (target)
+			fput_light(target->filp, fput_needed);
+
+		return ret;
+	}
 
 	default:
 		return -ENOTTY;
@@ -5017,10 +5141,60 @@ static int __perf_event_overflow(struct perf_event *event, int nmi,
 }
 
 int perf_event_overflow(struct perf_event *event, int nmi,
-			  struct perf_sample_data *data,
-			  struct pt_regs *regs)
+			struct perf_sample_data *data,
+			struct pt_regs *regs)
 {
 	return __perf_event_overflow(event, nmi, 1, data, regs);
+}
+
+static void perf_event_pause_resume(struct perf_event *event, int nmi,
+				    struct perf_sample_data *data,
+				    struct pt_regs *regs)
+{
+	struct perf_event *iter;
+	unsigned long flags;
+
+	/*
+	 * Ensure the targets can't be sched in/out concurrently.
+	 * Disabling irqs is sufficient for that because starters/stoppers
+	 * are on the same cpu/task.
+	 */
+	local_irq_save(flags);
+
+
+	/* Prevent the targets from being removed under us. */
+	rcu_read_lock();
+
+	list_for_each_entry_rcu(iter, &event->starter_list, starter_entry) {
+		/*
+		 * There is a small race window here, between the state
+		 * gets set to active and the event is actually ->add().
+		 * We need to find a way to ensure the starter/stopper
+		 * can't trigger in between.
+		 */
+		if (iter->state == PERF_EVENT_STATE_ACTIVE) {
+			if (iter->paused) {
+				iter->pmu->start(iter, PERF_EF_RELOAD);
+				iter->paused = 0;
+			}
+		}
+	}
+
+	list_for_each_entry_rcu(iter, &event->stopper_list, stopper_entry) {
+		/* Similar race with ->del() */
+		if (iter->state == PERF_EVENT_STATE_ACTIVE) {
+			if (!iter->paused) {
+				iter->pmu->stop(iter, PERF_EF_UPDATE);
+				iter->paused = 1;
+			}
+		}
+	}
+
+	rcu_read_unlock();
+
+	local_irq_restore(flags);
+
+	perf_event_output(event, nmi, data, regs);
 }
 
 /*
@@ -6164,6 +6338,11 @@ perf_event_alloc(struct perf_event_attr *attr, int cpu,
 	INIT_LIST_HEAD(&event->group_entry);
 	INIT_LIST_HEAD(&event->event_entry);
 	INIT_LIST_HEAD(&event->sibling_list);
+
+	mutex_init(&event->starter_stopper_mutex);
+	INIT_LIST_HEAD(&event->starter_list);
+	INIT_LIST_HEAD(&event->stopper_list);
+
 	init_waitqueue_head(&event->waitq);
 	init_irq_work(&event->pending, perf_pending_event);
 
@@ -6916,7 +7095,8 @@ inherit_event(struct perf_event *parent_event,
 	      struct perf_event_context *parent_ctx,
 	      struct task_struct *child,
 	      struct perf_event *group_leader,
-	      struct perf_event_context *child_ctx)
+	      struct perf_event_context *child_ctx,
+	      int *triggers)
 {
 	struct perf_event *child_event;
 	unsigned long flags;
@@ -6929,6 +7109,9 @@ inherit_event(struct perf_event *parent_event,
 	 */
 	if (parent_event->parent)
 		parent_event = parent_event->parent;
+
+	if (parent_event->starter || parent_event->stopper)
+		*triggers = 1;
 
 	child_event = perf_event_alloc(&parent_event->attr,
 					   parent_event->cpu,
@@ -6995,22 +7178,23 @@ inherit_event(struct perf_event *parent_event,
 }
 
 static int inherit_group(struct perf_event *parent_event,
-	      struct task_struct *parent,
-	      struct perf_event_context *parent_ctx,
-	      struct task_struct *child,
-	      struct perf_event_context *child_ctx)
+			 struct task_struct *parent,
+			 struct perf_event_context *parent_ctx,
+			 struct task_struct *child,
+			 struct perf_event_context *child_ctx,
+			 int *triggers)
 {
 	struct perf_event *leader;
 	struct perf_event *sub;
 	struct perf_event *child_ctr;
 
 	leader = inherit_event(parent_event, parent, parent_ctx,
-				 child, NULL, child_ctx);
+			       child, NULL, child_ctx, triggers);
 	if (IS_ERR(leader))
 		return PTR_ERR(leader);
 	list_for_each_entry(sub, &parent_event->sibling_list, group_entry) {
 		child_ctr = inherit_event(sub, parent, parent_ctx,
-					    child, leader, child_ctx);
+					  child, leader, child_ctx, triggers);
 		if (IS_ERR(child_ctr))
 			return PTR_ERR(child_ctr);
 	}
@@ -7021,7 +7205,7 @@ static int
 inherit_task_group(struct perf_event *event, struct task_struct *parent,
 		   struct perf_event_context *parent_ctx,
 		   struct task_struct *child, int ctxn,
-		   int *inherited_all)
+		   int *inherited_all, int *triggers)
 {
 	int ret;
 	struct perf_event_context *child_ctx;
@@ -7048,7 +7232,7 @@ inherit_task_group(struct perf_event *event, struct task_struct *parent,
 	}
 
 	ret = inherit_group(event, parent, parent_ctx,
-			    child, child_ctx);
+			    child, child_ctx, triggers);
 
 	if (ret)
 		*inherited_all = 0;
@@ -7059,7 +7243,7 @@ inherit_task_group(struct perf_event *event, struct task_struct *parent,
 /*
  * Initialize the perf_event context in task_struct
  */
-int perf_event_init_context(struct task_struct *child, int ctxn)
+int perf_event_init_context(struct task_struct *child, int ctxn, int *triggers)
 {
 	struct perf_event_context *child_ctx, *parent_ctx;
 	struct perf_event_context *cloned_ctx;
@@ -7097,7 +7281,8 @@ int perf_event_init_context(struct task_struct *child, int ctxn)
 	 */
 	list_for_each_entry(event, &parent_ctx->pinned_groups, group_entry) {
 		ret = inherit_task_group(event, parent, parent_ctx,
-					 child, ctxn, &inherited_all);
+					 child, ctxn, &inherited_all,
+					 triggers);
 		if (ret)
 			break;
 	}
@@ -7113,7 +7298,8 @@ int perf_event_init_context(struct task_struct *child, int ctxn)
 
 	list_for_each_entry(event, &parent_ctx->flexible_groups, group_entry) {
 		ret = inherit_task_group(event, parent, parent_ctx,
-					 child, ctxn, &inherited_all);
+					 child, ctxn, &inherited_all,
+					 triggers);
 		if (ret)
 			break;
 	}
@@ -7151,21 +7337,96 @@ int perf_event_init_context(struct task_struct *child, int ctxn)
 	return ret;
 }
 
+static void
+perf_event_inherit_starter(struct task_struct *child,
+			   struct perf_event *event,
+			   struct perf_event *parent_starter)
+{
+	int ctxn;
+	struct perf_event *iter;
+	struct perf_event_context *ctx;
+
+	ctxn = parent_starter->pmu->task_ctx_nr;
+	ctx = child->perf_event_ctxp[ctxn];
+
+	if (WARN_ON_ONCE(!ctx))
+		return;
+
+	list_for_each_entry(iter, &ctx->event_list, event_entry) {
+		if (iter->parent == parent_starter) {
+			list_add_tail(&event->starter_entry, &iter->starter_list);
+			return;
+		}
+	}
+
+	WARN_ONCE(1, "inherited starter not found\n");
+}
+
+static void
+perf_event_inherit_stopper(struct task_struct *child,
+			   struct perf_event *event,
+			   struct perf_event *parent_stopper)
+{
+	int ctxn;
+	struct perf_event *iter;
+	struct perf_event_context *ctx;
+
+	ctxn = parent_stopper->pmu->task_ctx_nr;
+	ctx = child->perf_event_ctxp[ctxn];
+
+	if (WARN_ON_ONCE(!ctx))
+		return;
+
+	list_for_each_entry(iter, &ctx->event_list, event_entry) {
+		if (iter->parent == parent_stopper) {
+			list_add_tail(&event->stopper_entry, &iter->stopper_list);
+			return;
+		}
+	}
+
+	WARN_ONCE(1, "inherited stopper not found\n");
+}
+
+
+static void
+perf_event_inherit_triggers(struct task_struct *child, int ctxn)
+{
+	struct perf_event_context *ctx;
+	struct perf_event *event;
+
+	ctx = child->perf_event_ctxp[ctxn];
+	if (!ctx)
+		return;
+
+	list_for_each_entry(event, &ctx->event_list, event_entry) {
+		if (event->parent->starter)
+			perf_event_inherit_starter(child, event, event->parent->starter);
+		if (event->parent->stopper)
+			perf_event_inherit_stopper(child, event, event->parent->stopper);
+	}
+}
+
+
 /*
  * Initialize the perf_event context in task_struct
  */
 int perf_event_init_task(struct task_struct *child)
 {
-	int ctxn, ret;
+	int ctxn, ret, triggers = 0;
 
 	memset(child->perf_event_ctxp, 0, sizeof(child->perf_event_ctxp));
 	mutex_init(&child->perf_event_mutex);
 	INIT_LIST_HEAD(&child->perf_event_list);
 
 	for_each_task_context_nr(ctxn) {
-		ret = perf_event_init_context(child, ctxn);
+		ret = perf_event_init_context(child, ctxn, &triggers);
 		if (ret)
 			return ret;
+	}
+
+	if (triggers) {
+		for_each_task_context_nr(ctxn)
+			perf_event_inherit_triggers(child, ctxn);
 	}
 
 	return 0;
