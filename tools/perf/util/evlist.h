@@ -116,7 +116,6 @@ static inline void perf_evlist__set_maps(struct perf_evlist *evlist,
 int perf_evlist__create_maps(struct perf_evlist *evlist,
 			     struct perf_target *target);
 void perf_evlist__delete_maps(struct perf_evlist *evlist);
-int perf_evlist__set_filters(struct perf_evlist *evlist);
 
 u64 perf_evlist__sample_type(const struct perf_evlist *evlist);
 bool perf_evlist__sample_id_all(const const struct perf_evlist *evlist);
@@ -129,4 +128,6 @@ void perf_evlist__splice_list_tail(struct perf_evlist *evlist,
 				   struct list_head *list,
 				   int nr_entries);
 
+int perf_evlist__for_each_evsel(struct perf_evlist *evlist,
+				int (*call)(struct perf_evsel *, int, int));
 #endif /* __PERF_EVLIST_H */

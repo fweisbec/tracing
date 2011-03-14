@@ -53,6 +53,8 @@ void perf_evsel__init(struct perf_evsel *evsel,
 	evsel->attr	   = *attr;
 	INIT_LIST_HEAD(&evsel->node);
 	hists__init(&evsel->hists);
+	INIT_LIST_HEAD(&evsel->starter_list);
+	INIT_LIST_HEAD(&evsel->stopper_list);
 }
 
 struct perf_evsel *perf_evsel__new(struct perf_event_attr *attr, int idx)
@@ -945,4 +947,55 @@ int perf_event__synthesize_sample(union perf_event *event, u64 type,
 	}
 
 	return 0;
+}
+
+int perf_evsel__set_filter(struct perf_evsel *evsel, int cpu,
+			   int thread)
+{
+	char *filter;
+	int fd;
+
+	filter = evsel->filter;
+	if (!filter)
+		return 0;
+
+	fd = FD(evsel, cpu, thread);
+
+	return ioctl(fd, PERF_EVENT_IOC_SET_FILTER, filter);
+}
+
+int perf_evsel__set_starter(struct perf_evsel *evsel, int cpu,
+			    int thread)
+{
+	struct perf_evsel *target;
+	int fd, fd_target;
+	int ret = 0;
+
+	list_for_each_entry(target, &evsel->starter_list, starter_entry) {
+		fd = FD(evsel, cpu, thread);
+		fd_target = FD(target, cpu, thread);
+		ret = ioctl(fd, PERF_EVENT_IOC_SET_STARTER, fd_target);
+		if (ret)
+			break;
+	}
+
+	return ret;
+}
+
+int perf_evsel__set_stopper(struct perf_evsel *evsel, int cpu,
+			    int thread)
+{
+	struct perf_evsel *target;
+	int fd, fd_target;
+	int ret = 0;
+
+	list_for_each_entry(target, &evsel->stopper_list, stopper_entry) {
+		fd = FD(evsel, cpu, thread);
+		fd_target = FD(target, cpu, thread);
+		ret = ioctl(fd, PERF_EVENT_IOC_SET_STOPPER, fd_target);
+		if (ret)
+			break;
+	}
+
+	return ret;
 }

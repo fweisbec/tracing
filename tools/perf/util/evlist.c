@@ -647,27 +647,23 @@ void perf_evlist__delete_maps(struct perf_evlist *evlist)
 	evlist->threads = NULL;
 }
 
-int perf_evlist__set_filters(struct perf_evlist *evlist)
+int perf_evlist__for_each_evsel(struct perf_evlist *evlist,
+				int (*call)(struct perf_evsel *, int, int))
 {
 	const struct thread_map *threads = evlist->threads;
 	const struct cpu_map *cpus = evlist->cpus;
 	struct perf_evsel *evsel;
-	char *filter;
 	int thread;
 	int cpu;
 	int err;
-	int fd;
 
 	list_for_each_entry(evsel, &evlist->entries, node) {
-		filter = evsel->filter;
-		if (!filter)
-			continue;
 		for (cpu = 0; cpu < cpus->nr; cpu++) {
 			for (thread = 0; thread < threads->nr; thread++) {
-				fd = FD(evsel, cpu, thread);
-				err = ioctl(fd, PERF_EVENT_IOC_SET_FILTER, filter);
+				err = call(evsel, cpu, thread);
 				if (err)
 					return err;
+
 			}
 		}
 	}

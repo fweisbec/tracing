@@ -786,6 +786,64 @@ int parse_filter(const struct option *opt, const char *str,
 	return 0;
 }
 
+static int parse_starter_stopper(const struct option *opt,
+				 const char *str, int starter)
+{
+	struct perf_evlist *evlist = *(struct perf_evlist **)opt->value;
+	struct perf_evsel *last = NULL, *trigger = NULL;
+	char *end;
+	unsigned long i = 0;
+	int found = 0;
+	unsigned long idx;
+
+	if (evlist->nr_entries > 0)
+		last = list_entry(evlist->entries.prev, struct perf_evsel, node);
+
+	if (last == NULL) {
+		fprintf(stderr, "--starter/--stopper options should follow a -e tracepoint option\n");
+		return -1;
+	}
+
+	idx = strtoul(str, &end, 10);
+	if (str == end) {
+		//FIXME: Clarify that message, and fix above error handling
+		fprintf(stderr, "--starter/--stopper options should be followed by an event index\n");
+		return -1;
+	}
+
+	list_for_each_entry(trigger, &evlist->entries, node) {
+		if (i++ == idx) {
+			found = 1;
+			break;
+		}
+	}
+
+	if (!found) {
+		fprintf(stderr, "--starter/--stopper should be followed by a number "
+			"matching the nth event from the command line\n");
+		return -1;
+	}
+
+	if (starter)
+		list_add_tail(&last->starter_entry, &trigger->starter_list);
+	else
+		list_add_tail(&last->stopper_entry, &trigger->stopper_list);
+
+	return 0;
+}
+
+int parse_starter(const struct option *opt, const char *str,
+		 int unset __used)
+{
+	return parse_starter_stopper(opt, str, 1);
+}
+
+int parse_stopper(const struct option *opt, const char *str,
+		 int unset __used)
+{
+	return parse_starter_stopper(opt, str, 0);
+}
+
 static const char * const event_type_descriptors[] = {
 	"Hardware event",
 	"Software event",

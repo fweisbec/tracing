@@ -519,8 +519,20 @@ static int run_perf_stat(int argc __used, const char **argv)
 		counter->supported = true;
 	}
 
-	if (perf_evlist__set_filters(evsel_list)) {
-		error("failed to set filter with %d (%s)\n", errno,
+	if (perf_evlist__for_each_evsel(evsel_list, perf_evsel__set_filter)) {
+		pr_err("failed to set filter with %d (%s)\n", errno,
+			strerror(errno));
+		return -1;
+	}
+
+	if (perf_evlist__for_each_evsel(evsel_list, perf_evsel__set_starter)) {
+		pr_err("failed to set starter with %d (%s)\n", errno,
+			strerror(errno));
+		return -1;
+	}
+
+	if (perf_evlist__for_each_evsel(evsel_list, perf_evsel__set_stopper)) {
+		pr_err("failed to set stopper with %d (%s)\n", errno,
 			strerror(errno));
 		return -1;
 	}
@@ -1076,6 +1088,10 @@ static const struct option options[] = {
 		     parse_events_option),
 	OPT_CALLBACK(0, "filter", &evsel_list, "filter",
 		     "event filter", parse_filter),
+	OPT_CALLBACK(0, "starter", &evsel_list, "starter",
+		     "event starter", parse_starter),
+	OPT_CALLBACK(0, "stopper", &evsel_list, "stopper",
+		     "event stopper", parse_stopper),
 	OPT_BOOLEAN('i', "no-inherit", &no_inherit,
 		    "child tasks do not inherit counters"),
 	OPT_STRING('p', "pid", &target.pid, "pid",
