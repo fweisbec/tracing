@@ -745,6 +745,8 @@ const struct option record_options[] = {
 		     "event starter", parse_starter),
 	OPT_CALLBACK(0, "stopper", &evsel_list, "stopper",
 		     "event stopper", parse_stopper),
+	OPT_CALLBACK_NOOPT(0, "enable-on-starter", &evsel_list, "enable-on-starter",
+		     "enable-on-starter", parse_enable_on_starter),
 	OPT_INTEGER('p', "pid", &target_pid,
 		    "record events on existing process id"),
 	OPT_INTEGER('t', "tid", &target_tid,
