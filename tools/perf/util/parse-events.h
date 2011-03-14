@@ -35,6 +35,7 @@ extern int parse_events_terms(struct list_head *terms, const char *str);
 extern int parse_filter(const struct option *opt, const char *str, int unset);
 extern int parse_starter(const struct option *opt, const char *str, int unset);
 extern int parse_stopper(const struct option *opt, const char *str, int unset);
+extern int parse_enable_on_starter(const struct option *opt, const char *str, int unset);
 
 #define EVENTS_HELP_MAX (128*1024)
 

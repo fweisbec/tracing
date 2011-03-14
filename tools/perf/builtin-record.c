@@ -793,6 +793,8 @@ const struct option record_options[] = {
 		     "event starter", parse_starter),
 	OPT_CALLBACK(0, "stopper", &record.evlist, "stopper",
 		     "event stopper", parse_stopper),
+	OPT_CALLBACK_NOOPT(0, "enable-on-starter", &record.evlist, "enable-on-starter",
+		     "enable-on-starter", parse_enable_on_starter),
 	OPT_STRING('t', "tid", &record.opts.target.tid, "tid",
 		    "record events on existing thread id"),
 	OPT_INTEGER('r', "realtime", &record.realtime_prio,

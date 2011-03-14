@@ -1092,6 +1092,8 @@ static const struct option options[] = {
 		     "event starter", parse_starter),
 	OPT_CALLBACK(0, "stopper", &evsel_list, "stopper",
 		     "event stopper", parse_stopper),
+	OPT_CALLBACK_NOOPT(0, "enable-on-starter", &evsel_list, "enable-on-starter",
+			   "enable-on-starter", parse_enable_on_starter),
 	OPT_BOOLEAN('i', "no-inherit", &no_inherit,
 		    "child tasks do not inherit counters"),
 	OPT_STRING('p', "pid", &target.pid, "pid",

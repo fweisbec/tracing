@@ -786,6 +786,26 @@ int parse_filter(const struct option *opt, const char *str,
 	return 0;
 }
 
+int parse_enable_on_starter(const struct option *opt, const char __used *str,
+			    int unset __used)
+{
+	struct perf_evlist *evlist = *(struct perf_evlist **)opt->value;
+	struct perf_evsel *last = NULL;
+
+	if (evlist->nr_entries > 0)
+		last = list_entry(evlist->entries.prev, struct perf_evsel, node);
+
+	if (last == NULL) {
+		fprintf(stderr,
+			"--enable-on-starter option should follow a -e tracepoint option\n");
+		return -1;
+	}
+
+	last->attr.enable_on_starter = 1;
+
+	return 0;
+}
+
 static int parse_starter_stopper(const struct option *opt,
 				 const char *str, int starter)
 {
