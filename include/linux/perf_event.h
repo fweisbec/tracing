@@ -285,6 +285,7 @@ struct perf_event_attr {
 #define PERF_EVENT_IOC_PERIOD		_IOW('$', 4, __u64)
 #define PERF_EVENT_IOC_SET_OUTPUT	_IO ('$', 5)
 #define PERF_EVENT_IOC_SET_FILTER	_IOW('$', 6, char *)
+/* FIXME: those two need to be merged together into some IOC_SET_TOGGLE */
 #define PERF_EVENT_IOC_SET_STARTER	_IO('$', 7)
 #define PERF_EVENT_IOC_SET_STOPPER	_IO('$', 8)
 
@@ -992,7 +993,26 @@ struct perf_event {
 	struct perf_cgroup		*cgrp; /* cgroup event is attach to */
 	int				cgrp_defer_enabled;
 #endif
+/* FIXME: rename toggle_mutex? */
 	struct mutex			starter_stopper_mutex;
+/* 
+ * FIXME: we may want to find a way to merge starter and stopper into
+ * common entries to get out all those code/data duplications:
+ *
+ * struct perf_event {
+ *     ...
+ * 
+ *     // struct that links the toggled event to its starter/stopper
+ *     struct toggle_link {
+ *         struct list_head toggled_entry;
+ *         enum {
+ *             TOGGLE_ON, // toggle event is a starter
+ *             TOGGLE_OFF, // toggle event is a stopper
+ *         } toggle_action;
+ *         struct perf_event *toggle_event; // toggle_event that start/stop current event
+ *     } toggle_link;
+ * }
+ */
 	struct list_head		starter_entry;
 	struct list_head		stopper_entry;
 	struct list_head		starter_list;

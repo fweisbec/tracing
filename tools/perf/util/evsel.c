@@ -53,6 +53,7 @@ void perf_evsel__init(struct perf_evsel *evsel,
 	evsel->attr	   = *attr;
 	INIT_LIST_HEAD(&evsel->node);
 	hists__init(&evsel->hists);
+	/* FIXME: as in kernel, starter/stopper should be merged */
 	INIT_LIST_HEAD(&evsel->starter_list);
 	INIT_LIST_HEAD(&evsel->stopper_list);
 }

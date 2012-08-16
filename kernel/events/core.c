@@ -3399,6 +3399,19 @@ static long perf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		struct perf_event *target = NULL;
 		int err;
 
+		/*
+		 * CHECKME:
+		 * That fget is convenient because it ensure the toggled
+		 * event won't be released before the toggle event. So
+		 * we that the toggle event is the one that does the
+		 * cleanup (cf: perf_event_kernel_release(). Meanwhile
+		 * this introduce nasty possible deadlocks. For example
+		 * if event A toggles B and B toggles A, none will ever
+		 * be released. And the chain of dependency can be more
+		 * complicated than that. So either we keep that fget
+		 * and we check for circular dependency. Or we use
+		 * something else.
+		 */
 		target_file = fget(arg);
 		if (!target_file || target_file->f_op != &perf_fops)
 			return -EBADF;
@@ -3407,6 +3420,12 @@ static long perf_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		err = perf_event_set_starter(event, target);
 		if (err)
 			fput(target_file);
+
+		/* CHECKME:
+		 * do a synchronize_rcu() here so that we ensure the toggle
+		 * event sees the new target from perf_event_pause_resume()
+		 * before we resume userspace?
+		 */
 		return err;
 	}
 
@@ -4878,6 +4897,14 @@ static void perf_event_pause_resume(struct perf_event *event,
 	 */
 	local_irq_save(flags);
 
+
+	/* CHECKME:
+	 * We can't take the ctx lock here because the event might
+	 * interrupt a place that already holds it :(
+	 * We need to ensure we don't mess up with a concurrent event_sched_in/out()
+	 * of the targets on the current CPU. Perhaps the target should call
+	 * toggle_event::pmu->disable_all() before doing an event_sched_*().
+	 */
 
 	/* Prevent the targets from being removed under us. */
 	rcu_read_lock();
